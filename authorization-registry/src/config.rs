@@ -90,6 +90,7 @@ pub struct Config {
     pub idp_eori: String,
     pub client_cert_path: String,
     pub client_cert_pass: String,
+    pub allowed_company_id: String,
     pub satellite_url: String,
     pub ishare_ca_path: String,
     pub satellite_eori: String,

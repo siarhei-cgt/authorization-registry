@@ -134,6 +134,7 @@ impl TimeProvider for RealTimeProvider {
 #[derive(Debug)]
 pub struct AppConfig {
     pub deploy_route: String,
+    pub allowed_company_id : String,
     pub client_eori: String,
     pub validate_m2m_certificate: bool,
     pub delegation_allows_service_providers: bool,
@@ -158,7 +159,7 @@ impl FromRef<AppState> for Arc<ServerToken> {
 
 pub fn get_app(db: DatabaseConnection, app_state: AppState, disable_cors_check: bool) -> Router {
     let connect_routes = get_connect_routes();
-    let admin_routes = get_admin_routes(app_state.server_token.clone());
+    let admin_routes = get_admin_routes(app_state.server_token.clone(), Arc::new(app_state.clone()),);
     let delegation_routes = get_delegation_routes(app_state.server_token.clone());
     let policy_set_routes = get_policy_set_routes(app_state.server_token.clone());
     let capabilities_routes = get_capabilities_routes();
@@ -259,6 +260,7 @@ async fn main() {
         config: Arc::new(AppConfig {
             deploy_route: config.deploy_route.clone(),
             client_eori: config.client_eori.clone(),
+            allowed_company_id: config.allowed_company_id.clone(),
             validate_m2m_certificate: config.validate_m2m_certificate,
             delegation_allows_service_providers: config.delegation_allows_service_providers,
             frontend: config.frontend,

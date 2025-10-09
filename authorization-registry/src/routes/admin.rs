@@ -32,8 +32,11 @@ use crate::{
     services::server_token::ServerToken,
 };
 
-pub fn get_admin_routes(server_token: Arc<ServerToken>) -> Router<AppState> {
-    return Router::new()
+pub fn get_admin_routes(
+    server_token: Arc<ServerToken>,
+    app_state: Arc<AppState>,
+) -> Router<AppState> {
+    Router::new()
         .route(
             "/policy-set-template/:id",
             delete(delete_policy_set_template),
@@ -54,13 +57,15 @@ pub fn get_admin_routes(server_token: Arc<ServerToken>) -> Router<AppState> {
                 .put(replace_policy_in_policy_set)
                 .get(get_policy),
         )
+        .layer(from_fn_with_state(app_state.clone(), extract_human_middleware)) // 👈 added here
+        .layer(from_fn_with_state(server_token, extract_role_middleware))
         .layer(from_fn_with_state(
             vec!["dexspace_admin".to_owned()],
             auth_role_middleware,
         ))
-        .layer(from_fn(extract_human_middleware))
-        .layer(from_fn_with_state(server_token, extract_role_middleware));
+        .layer(Extension(app_state.clone()))
 }
+
 
 #[utoipa::path(
     delete,

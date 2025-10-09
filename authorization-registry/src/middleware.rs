@@ -5,6 +5,8 @@ use crate::{
     ServerToken,
 };
 
+use crate::AppState;
+
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -15,6 +17,7 @@ use axum::{
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RealmAccess {
@@ -51,24 +54,48 @@ pub async fn extract_role_middleware(
 
 pub async fn extract_human_middleware(
     Extension(role): Extension<Role>,
+    Extension(app_state): Extension<Arc<AppState>>,
     mut req: Request,
     next: Next,
 ) -> Result<(StatusCode, HeaderMap, Body), AppError> {
-    let human = match role {
-        Role::Human(human) => human,
-        _ => {
-            return Err(AppError::Expected(ExpectedError {
-                status_code: StatusCode::UNAUTHORIZED,
-                message: "You need a h2m access token to access".to_owned(),
-                reason: "Request attempted with a machine token but human token is required"
-                    .to_owned(),
-                metadata: None,
-            }));
+    let allowed_company_id = &app_state.config.allowed_company_id;
+
+    tracing::info!("extract_human_middleware: role = {:?}", &role);
+    match role {
+            Role::Human(human) => {
+                tracing::debug!("Token is human, user_id = {}", &human.user_id);
+                req.extensions_mut().insert(human.clone());
+            }
+            Role::Machine(machine) => {
+                tracing::debug!("Token is machine, company_id = {}", &machine.company_id);
+                if machine.company_id == *allowed_company_id {
+                    tracing::info!("Machine token matches allowed_company_id; promoting to human with admin role");
+                    // create synthetic human
+                    let human_equivalent = Human {
+                        user_id: machine.company_id.clone(),  // or some fallback
+                        realm_access_roles: vec!["dexspace_admin".to_string()],
+                        company_id: machine.company_id.clone(),
+                        // include other fields if needed
+                    };
+                    req.extensions_mut().insert(human_equivalent);
+                } else {
+                    tracing::warn!(
+                        "Machine token rejected: company_id `{}` != allowed `{}`",
+                        &machine.company_id,
+                        allowed_company_id
+                    );
+                    return Err(AppError::Expected(ExpectedError {
+                        status_code: StatusCode::UNAUTHORIZED,
+                        message: "You need a valid human or machine token with correct company_id".to_owned(),
+                        reason: format!(
+                            "Machine token has company_id `{}`, allowed is `{}`",
+                            &machine.company_id, allowed_company_id
+                        ),
+                        metadata: None,
+                    }));
+                }
+            }
         }
-    };
-
-    req.extensions_mut().insert(human.clone());
-
     let res = next.run(req).await;
     let status = res.status().clone();
     let headers = res.headers().clone();
@@ -80,14 +107,20 @@ pub async fn extract_human_middleware(
 pub async fn auth_role_middleware(
     State(roles): State<Vec<String>>,
     Extension(human): Extension<Human>,
+    Extension(app_state): Extension<AppState>,
     req: Request,
     next: Next,
 ) -> Result<(StatusCode, HeaderMap, Body), AppError> {
-    if !&human.realm_access_roles.iter().any(|r| roles.contains(&r)) {
+    let has_role = human.realm_access_roles.iter().any(|r| roles.contains(&r));
+    let allowed_company_id = &app_state.config.allowed_company_id;
+    let has_company_id = human.company_id == *allowed_company_id;
+
+    if !has_role && !has_company_id {
         return Err(AppError::Expected(ExpectedError {
             status_code: StatusCode::UNAUTHORIZED,
-            message:  "You don't have the correct access role".to_owned(),
-            reason: format!("User '{}' with access roles '{:?}', does not have any required access roles '{:?}'", &human.user_id, &human.realm_access_roles, &roles),
+            message:  "You don't have the correct access role or company_id".to_owned(),
+            reason: format!("User '{}' with roles '{:?}' and company_id '{:?}' does not have any required access roles '{:?}' or company_id '{}'",
+                  &human.user_id, &human.realm_access_roles, &human.company_id, &roles, allowed_company_id),
             metadata: None,
         }));
     }

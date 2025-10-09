@@ -82,6 +82,7 @@ pub mod helpers {
             config: Arc::new(crate::AppConfig {
                 service_name: "AR".to_owned(),
                 deploy_route: "".to_owned(),
+                allowed_company_id: "NL.CONSUME_TOO_MUCH".to_owned(),
                 client_eori: "NL.CONSUME_TOO_MUCH".to_owned(),
                 validate_m2m_certificate: true,
                 delegation_allows_service_providers: false,
